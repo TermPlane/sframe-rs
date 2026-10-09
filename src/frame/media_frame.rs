@@ -176,6 +176,9 @@ impl<'ibuf> MediaFrameView<'ibuf> {
 
         let meta_len = self.meta_data().len();
         let buffer: &mut [u8] = crypto_buffer.into();
+        // the AAD was laid out as header || meta data, move the meta data in front so the
+        // header is followed by the cipher text
+        buffer[..aad.len()].rotate_left(header.len());
         let encrypted =
             EncryptedFrameView::with_header(header, &buffer[meta_len..], &buffer[..meta_len]);
 
@@ -193,10 +196,11 @@ impl AadData for Aad<'_> {
         self.meta_data.len() + self.header.len()
     }
 
+    /// Serializes the AAD as header || meta data, see [RFC 9605 4.4.3](https://www.rfc-editor.org/rfc/rfc9605.html#section-4.4.3)
     fn serialize(&self, buffer: &mut [u8]) -> Result<()> {
-        let (meta_data, header) = buffer.split_at_mut(self.meta_data.len());
-        meta_data.copy_from_slice(self.meta_data);
+        let (header, meta_data) = buffer.split_at_mut(self.header.len());
         self.header.serialize(header)?;
+        meta_data.copy_from_slice(self.meta_data);
         Ok(())
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     crypto::{
         aead::AeadDecrypt,
-        buffer::{AadData, decryption::DecryptionBuffer},
+        buffer::{AadData, DecryptionBufferView, decryption::DecryptionBuffer},
         key_derivation::KeyDerivation,
     },
     error::{Result, SframeError},
@@ -161,6 +161,12 @@ impl<'ibuf> EncryptedFrameView<'ibuf> {
 
         dec_key.decrypt(&mut decryption_buffer, counter)?;
 
+        // the AAD was laid out as header || meta data, move the meta data in front where the
+        // decrypted media frame expects it
+        DecryptionBufferView::from(&mut decryption_buffer)
+            .aad
+            .rotate_left(self.header_buf.len());
+
         let meta_len = self.meta_data.len();
         decryption_buffer.truncate(dec_key.cipher_suite(), meta_len);
 
@@ -220,10 +226,11 @@ impl AadData for EncryptedFrameView<'_> {
         self.header.len() + self.meta_data.len()
     }
 
+    /// Serializes the AAD as header || meta data, see [RFC 9605 4.4.3](https://www.rfc-editor.org/rfc/rfc9605.html#section-4.4.3)
     fn serialize(&self, buffer: &mut [u8]) -> Result<()> {
-        let (meta_data, header) = buffer.split_at_mut(self.meta_data.len());
-        meta_data.copy_from_slice(self.meta_data);
+        let (header, meta_data) = buffer.split_at_mut(self.header_buf.len());
         header.copy_from_slice(self.header_buf);
+        meta_data.copy_from_slice(self.meta_data);
         Ok(())
     }
 }
