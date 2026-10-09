@@ -61,7 +61,7 @@ pub use media_frame::{MediaFrame, MediaFrameView};
 
 #[cfg(all(test, crypto_backend))]
 mod test {
-    use super::{EncryptedFrame, MediaFrame, SingleUseCounter};
+    use super::{EncryptedFrame, EncryptedFrameView, MediaFrame, MediaFrameView, SingleUseCounter};
     use crate::{
         CipherSuite,
         key::{DecryptionKey, EncryptionKey},
@@ -103,5 +103,81 @@ mod test {
         let media_frame = encrypted_frame.decrypt(&dec_key).unwrap();
 
         assert_bytes_eq(media_frame.payload(), &test_vec.plain_text);
+    }
+
+    #[test_case(CipherSuite::AesGcm128Sha256; "AesGcm128Sha256")]
+    #[test_case(CipherSuite::AesGcm256Sha512; "AesGcm256Sha512")]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_80; "AesCtr128HmacSha256_80"))]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_64; "AesCtr128HmacSha256_64"))]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_32; "AesCtr128HmacSha256_32"))]
+    fn encrypt_test_vector_as_view(cipher_suite: CipherSuite) {
+        let test_vec = get_sframe_test_vector(&cipher_suite.to_string());
+        let enc_key = EncryptionKey::from_test_vector(cipher_suite, test_vec);
+        let mut counter = SingleUseCounter::new(test_vec.counter);
+        let mut buffer = Vec::new();
+
+        let media_frame = MediaFrameView::try_with_meta_data(
+            &mut counter,
+            &test_vec.plain_text,
+            &test_vec.metadata,
+        )
+        .unwrap();
+        let encrypted_frame = media_frame.encrypt_into(&enc_key, &mut buffer).unwrap();
+
+        assert_bytes_eq(encrypted_frame.sframe_cipher_text(), &test_vec.cipher_text);
+        assert_bytes_eq(encrypted_frame.meta_data(), &test_vec.metadata);
+        assert_bytes_eq(
+            &buffer,
+            &[
+                test_vec.metadata.as_slice(),
+                test_vec.cipher_text.as_slice(),
+            ]
+            .concat(),
+        );
+    }
+
+    #[test_case(CipherSuite::AesGcm128Sha256; "AesGcm128Sha256")]
+    #[test_case(CipherSuite::AesGcm256Sha512; "AesGcm256Sha512")]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_80; "AesCtr128HmacSha256_80"))]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_64; "AesCtr128HmacSha256_64"))]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_32; "AesCtr128HmacSha256_32"))]
+    fn decrypt_test_vector_as_view(cipher_suite: CipherSuite) {
+        let test_vec = get_sframe_test_vector(&cipher_suite.to_string());
+        let dec_key = DecryptionKey::from_test_vector(cipher_suite, test_vec);
+        let mut buffer = Vec::new();
+
+        let encrypted_frame =
+            EncryptedFrameView::try_with_meta_data(&test_vec.cipher_text, &test_vec.metadata)
+                .unwrap();
+        let media_frame = encrypted_frame.decrypt_into(&dec_key, &mut buffer).unwrap();
+
+        assert_bytes_eq(media_frame.payload(), &test_vec.plain_text);
+        assert_bytes_eq(media_frame.meta_data(), &test_vec.metadata);
+        assert_eq!(media_frame.counter(), test_vec.counter);
+        assert_bytes_eq(
+            &buffer,
+            &[test_vec.metadata.as_slice(), test_vec.plain_text.as_slice()].concat(),
+        );
+    }
+
+    #[test_case(CipherSuite::AesGcm128Sha256; "AesGcm128Sha256")]
+    #[test_case(CipherSuite::AesGcm256Sha512; "AesGcm256Sha512")]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_80; "AesCtr128HmacSha256_80"))]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_64; "AesCtr128HmacSha256_64"))]
+    #[cfg_attr(aes_ctr, test_case(CipherSuite::AesCtr128HmacSha256_32; "AesCtr128HmacSha256_32"))]
+    fn decrypt_test_vector_rejects_altered_meta_data(cipher_suite: CipherSuite) {
+        let test_vec = get_sframe_test_vector(&cipher_suite.to_string());
+        let dec_key = DecryptionKey::from_test_vector(cipher_suite, test_vec);
+        let mut meta_data = test_vec.metadata.clone();
+        meta_data[0] ^= 0x01;
+        let mut buffer = Vec::new();
+
+        let encrypted_view =
+            EncryptedFrameView::try_with_meta_data(&test_vec.cipher_text, &meta_data).unwrap();
+        assert!(encrypted_view.decrypt_into(&dec_key, &mut buffer).is_err());
+
+        let encrypted_frame =
+            EncryptedFrame::try_with_meta_data(&test_vec.cipher_text, &meta_data).unwrap();
+        assert!(encrypted_frame.decrypt(&dec_key).is_err());
     }
 }
