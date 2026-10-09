@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1-fork.1] - 2026-10-10
+
+A release of this fork, ahead of upstream.
+
+### Bug Fixes
+
+- Build the frame AAD as header followed by meta data, as RFC 9605 4.4.3 does (#1 of this fork)
+
+> Frames carrying meta data were authenticated over meta data + header, which
+> fails every vector of RFC 9605 Appendix C.3. Such frames no longer decrypt
+> against 2.0.0. Frames without meta data are unaffected.
+
+### Testing
+
+- Run the RFC 9605 vectors through the frame API
+
 ## [2.0.0] - 2026-09-13
 
 ### Bug Fixes
